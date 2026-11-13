@@ -38,8 +38,10 @@ def _png(a: np.ndarray, edge: int = 48) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def page_data(run: Path, data: dict, chosen: dict, category: np.ndarray, stats: dict) -> dict:
-    """Everything the page draws, keyed as the template reads it."""
+def run_data(run: Path, data: dict) -> dict:
+    """What the page draws of a run whatever the categories are, keyed as the template reads it.
+
+    `_crops` holds what `category_data` needs to pick crops: it is not part of the page."""
     import umap
     from sklearn.metrics import silhouette_score
 
@@ -103,6 +105,18 @@ def page_data(run: Path, data: dict, chosen: dict, category: np.ndarray, stats: 
                    "sil": float(silhouette_score(centredf[sample], g[sample], metric="cosine")),
                    "height": float(z[-(k - 1), 2])}
 
+    return {"leaves": leaves, "nodes": nodes, "cuts": cuts, "points": points, "pthumbs": pthumbs,
+            "xyz_centre": [np.round(xyz[leaf == c].mean(0), 3).tolist() for c in range(CLUSTERS)],
+            "empty": int(len(site) - n), "total": len(site), "nsite": nsite,
+            "oldcount": np.bincount(site, minlength=nsite + 1).tolist(),
+            "_crops": {"thumb": thumb, "idx": idx, "leaf": leaf, "old": old, "nsite": nsite}}
+
+
+def category_data(of_run: dict, chosen: dict, category: np.ndarray, stats: dict) -> dict:
+    """What the page draws of one classification: classifier clusters and shape clusters against categories."""
+    crops = of_run["_crops"]
+    thumb, idx, leaf, old, nsite = (crops[k] for k in ("thumb", "idx", "leaf", "old", "nsite"))
+    rng = np.random.default_rng(0)
     nforms = len(chosen["categories"])
     matrix, cl, lf = {}, {}, {}
     for c in range(1, nsite + 1):
@@ -119,14 +133,15 @@ def page_data(run: Path, data: dict, chosen: dict, category: np.ndarray, stats: 
             m = np.nonzero((leaf == lv) & (category == f))[0]
             if len(m):
                 lf[f"{lv + 1}-{f}"] = [thumb(idx[i], 60) for i in rng.permutation(m)[:8]]
-
-    return {"leaves": leaves, "nodes": nodes, "cuts": cuts, "points": points, "pthumbs": pthumbs,
-            "xyz_centre": [np.round(xyz[leaf == c].mean(0), 3).tolist() for c in range(CLUSTERS)],
-            "empty": int(len(site) - n), "total": len(site), "nsite": nsite,
-            "oldcount": np.bincount(site, minlength=nsite + 1).tolist(),
-            "matrix": matrix, "cl": cl, "lf": lf,
+    return {"matrix": matrix, "cl": cl, "lf": lf,
             "lform": [np.bincount(category[leaf == lv], minlength=nforms).tolist() for lv in range(CLUSTERS)],
             "formCount": np.bincount(category, minlength=nforms).tolist(), "stats": stats}
+
+
+def page_data(run: Path, data: dict, chosen: dict, category: np.ndarray, stats: dict) -> dict:
+    """Everything the page draws."""
+    of_run = run_data(run, data)
+    return {**of_run, **category_data(of_run, chosen, category, stats)}
 
 
 def render(run: Path, chosen: dict, drawings: Path, data: dict, char: str) -> str:
@@ -140,7 +155,7 @@ def render(run: Path, chosen: dict, drawings: Path, data: dict, char: str) -> st
             entry["svgs"] = f["drawings"]
         forms.append(entry)
     svgs = {name: (drawings / f"{name}.svg").read_text().strip() for f in chosen["categories"] for name in f.get("drawings", [])}
-    data = {**data, "forms": forms, "notes": chosen.get("notes", []), "checks": chosen.get("checks", []),
+    data = {**{k: v for k, v in data.items() if not k.startswith("_")}, "forms": forms, "notes": chosen.get("notes", []), "checks": chosen.get("checks", []),
             "sources": chosen.get("sources", []), "meta": {**meta, "char": char,
                                                                "stale": chosen.get("run") not in (None, meta["run"])}}
     template = resources.files(__package__).joinpath("report.html").read_text()
