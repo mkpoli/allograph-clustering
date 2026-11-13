@@ -71,17 +71,20 @@ def run(code: str, out: Path, *, packs: Path, steps: int = 6000, epochs: int = 1
 def categories_path(code: str, run: Path, given: Path | None = None, log=print) -> Path:
     """The categories file of `code`: `given`, else `categories/<code>.yaml`, else a proposal written into the run.
 
-    The proposal is six unnamed categories, the top branches of the tree."""
+    The proposal is six unnamed categories, the top branches of the tree. One already written for this run is
+    kept, with whatever was edited in it."""
     import yaml
 
     path = given or CATEGORIES / f"{code}.yaml"
     if path.exists():
         return path
+    meta = json.loads((run / "run.json").read_text())
+    path = run / "proposal.yaml"
+    if path.exists() and yaml.safe_load(path.read_text()).get("run") == meta["run"]:
+        return path
     z = np.load(run / "tree.npz")["z"]
     shape, top = cluster.cut(z, CLUSTERS), cluster.cut(z, 6)
     groups = [sorted({int(c) for c in np.unique(shape[top == g])}) for g in range(1, 7)]
-    meta = json.loads((run / "run.json").read_text())
-    path = run / "proposal.yaml"
     path.write_text(yaml.safe_dump(classify.proposal(code, meta["run"], groups), allow_unicode=True, sort_keys=False))
     log(f"no categories for {code}; proposal written to {path}")
     return path

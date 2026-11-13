@@ -1,4 +1,4 @@
-"""The desk: one run's report served on this machine, classified again whenever its categories file changes.
+"""The desk: one run's report served on this machine, classified again whenever its categories file or a drawing changes.
 
 Edit `categories/<code>.yaml`, reload the page, and the categories, the comparison with the classifier
 clusters and the counts follow. The part of the page that depends only on the run (thumbnails, the tree,
@@ -20,13 +20,14 @@ class Desk:
         self.code, self.run, self.data, self.categories = code, run, data, categories
         self.char = chr(int(code.removeprefix("U+"), 16))
         self.of_run: dict | None = None
-        self.stamp: int | None = None
+        self.stamp: tuple[int, ...] | None = None
         self.html = ""
         self.lock = Lock()
 
     def page(self) -> str:
         with self.lock:
-            stamp = self.categories.stat().st_mtime_ns
+            drawings = sorted((self.categories.parent / "drawings").glob("*.svg"))
+            stamp = tuple(f.stat().st_mtime_ns for f in (self.categories, *drawings))
             if stamp != self.stamp:
                 if self.of_run is None:
                     self.of_run = report.run_data(self.run, self.data)
