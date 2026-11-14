@@ -1,4 +1,5 @@
-"""The clustering of one character's pack, each step skipped when its output is already in the run directory."""
+"""The clustering of one character's pack, each step skipped when its output is already in the run directory,
+and the classification of a finished run under a categories file."""
 from __future__ import annotations
 
 import hashlib
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import cluster, encoder, ink, pack, restore
+from . import CATEGORIES, CLUSTERS, classify, cluster, encoder, ink, pack, restore
 
 #: Least usable crops a character needs: enough for the encoder's batches and for 24 shape clusters of some size.
 MIN_CROPS = 500
@@ -65,3 +66,35 @@ def run(code: str, out: Path, *, packs: Path, steps: int = 6000, epochs: int = 1
     summary["created"] = old.get("created") if old.get("run") == summary["run"] else datetime.now(UTC).isoformat(timespec="seconds")
     (out / "run.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
+
+
+def categories_path(code: str, run: Path, given: Path | None = None, log=print) -> Path:
+    """The categories file of `code`: `given`, else `categories/<code>.yaml`, else a proposal written into the run.
+
+    The proposal is six unnamed categories, the top branches of the tree. One already written for this run is
+    kept, with whatever was edited in it."""
+    import yaml
+
+    path = given or CATEGORIES / f"{code}.yaml"
+    if path.exists():
+        return path
+    meta = json.loads((run / "run.json").read_text())
+    path = run / "proposal.yaml"
+    if path.exists() and yaml.safe_load(path.read_text()).get("run") == meta["run"]:
+        return path
+    z = np.load(run / "tree.npz")["z"]
+    shape, top = cluster.cut(z, CLUSTERS), cluster.cut(z, 6)
+    groups = [sorted({int(c) for c in np.unique(shape[top == g])}) for g in range(1, 7)]
+    path.write_text(yaml.safe_dump(classify.proposal(code, meta["run"], groups), allow_unicode=True, sort_keys=False))
+    log(f"no categories for {code}; proposal written to {path}")
+    return path
+
+
+def label(run: Path, data: dict, path: Path) -> tuple[dict, np.ndarray, np.ndarray, dict]:
+    """The categories of `path`, and each usable crop's shape cluster and category index, with the classification's figures."""
+    chosen = classify.load(path, CLUSTERS)
+    idx = np.load(run / "idx.npy")
+    shape = cluster.cut(np.load(run / "tree.npz")["z"], CLUSTERS)
+    category, stats = classify.assign(chosen["categories"], shape, data["classifier_cluster"][idx].astype(int),
+                                      data["embedding"][idx], np.load(run / "features.npy"))
+    return chosen, shape, category, stats

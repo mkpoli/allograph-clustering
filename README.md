@@ -53,6 +53,7 @@ uv sync --all-extras --group dev
 gh release download packs -p 'U+5019.npz' -D packs
 uv run allograph-clustering cluster U+5019
 uv run allograph-clustering label U+5019
+uv run allograph-clustering desk U+5019
 ```
 
 `cluster` trains a restoration network and two shape encoders on the character's own crops and builds
@@ -61,6 +62,9 @@ least 500 usable crops. `label` classifies every crop into the categories of `ca
 writes `labels.tsv` and `report.html` into the run. With no categories file it writes
 `runs/U+5019/proposal.yaml`, six unnamed categories from the top branches of the tree, to be edited,
 named and moved to `categories/`.
+
+`desk` serves the same report at http://127.0.0.1:8760/ and classifies again whenever the categories file
+changes: edit the file, reload the page.
 
 ## Method
 
@@ -97,7 +101,7 @@ of the pack.
 
 | Path | |
 |---|---|
-| `src/allograph_clustering/` | `pack`, `ink`, `restore`, `encoder`, `cluster`, `classify`, `report`, `cli` |
+| `src/allograph_clustering/` | `pack`, `ink`, `restore`, `encoder`, `cluster`, `classify`, `report`, `desk`, `cli` |
 | `categories/<code>.yaml` | the categories a person named for one character, and `drawings/` |
 | `labels/<code>.tsv` | every crop's classifier cluster, shape cluster and label under those categories |
 | `packs/`, `runs/` | downloaded packs and training output, not committed |

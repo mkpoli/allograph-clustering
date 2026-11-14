@@ -1,4 +1,4 @@
-"""`allograph-clustering cluster` and `allograph-clustering label`."""
+"""`allograph-clustering cluster`, `label` and `desk`."""
 from __future__ import annotations
 
 import json
@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-from . import CATEGORIES, CLUSTERS, PACKS, RUNS, run_dir
+from . import PACKS, RUNS, run_dir
 
 app = typer.Typer(help="Allograph induction for one character: cluster its crops by stroke shape, then label them.",
                   no_args_is_help=True)
@@ -46,27 +46,14 @@ def label(
     `proposal.yaml` in the run and used, to be edited and moved to `categories/`.
     """
     import numpy as np
-    import yaml
 
-    from . import classify, pack, report
-    from . import cluster as clustering
+    from . import pack, pipeline, report
 
     run = run_dir(code, out)
-    meta = json.loads((run / "run.json").read_text())
-    z = np.load(run / "tree.npz")["z"]
-    shape = clustering.cut(z, CLUSTERS)
-    path = categories or CATEGORIES / f"{code}.yaml"
-    if not path.exists():
-        top = clustering.cut(z, 6)
-        groups = [sorted({int(c) for c in np.unique(shape[top == g])}) for g in range(1, 7)]
-        path = run / "proposal.yaml"
-        path.write_text(yaml.safe_dump(classify.proposal(code, meta["run"], groups), allow_unicode=True, sort_keys=False))
-        typer.echo(f"no categories for {code}; proposal written to {path}", err=True)
-    chosen = classify.load(path, CLUSTERS)
+    path = pipeline.categories_path(code, run, categories, log=lambda m: typer.echo(m, err=True))
     data = pack.load(packs / f"{code}.npz")
+    chosen, shape, category, stats = pipeline.label(run, data, path)
     idx = np.load(run / "idx.npy")
-    category, stats = classify.assign(chosen["categories"], shape, data["classifier_cluster"][idx].astype(int),
-                                      data["embedding"][idx], np.load(run / "features.npy"))
     labels = [c["label"] for c in chosen["categories"]]
     with (run / "labels.tsv").open("w") as tsv:
         tsv.write("id\tclassifier_cluster\tshape_cluster\tlabel\n")
@@ -77,3 +64,24 @@ def label(
     (run / "report.html").write_text(page)
     typer.echo(json.dumps({"labels": dict(zip(labels, np.bincount(category, minlength=len(labels)).tolist(), strict=True)),
                            **stats, "report": str(run / "report.html")}, ensure_ascii=False))
+
+
+@app.command()
+def desk(
+    code: Code,
+    categories: Annotated[Path | None, typer.Option(help="categories file (default categories/<code>.yaml)")] = None,
+    packs: Packs = PACKS,
+    out: Runs = RUNS,
+    port: Annotated[int, typer.Option(help="port on 127.0.0.1")] = 8760,
+) -> None:
+    """Serve one run's report on this machine, classified again whenever the categories file changes."""
+    from . import desk as desks
+    from . import pack, pipeline
+
+    run = run_dir(code, out)
+
+    def echo(message: str) -> None:
+        typer.echo(message, err=True)
+
+    path = pipeline.categories_path(code, run, categories, log=echo)
+    desks.serve(desks.Desk(code, run, pack.load(packs / f"{code}.npz"), path), port, log=echo)
